@@ -1,12 +1,121 @@
 import SwiftUI
 
-/// Pit scouting. Robustness follows the 1678 District Event readme rubric.
+/// Every team at the event as a tile, so the pit scout can see who's left (the readme's goal:
+/// pit scout everyone by the end of load-in day).
+struct PitList: View {
+    @Environment(Store.self) private var store
+    @AppStorage("event") private var event = ""
+    @State private var shared: PitRecord?
+    @State private var manual = false
+    @State private var removing: Int?
+    @AppStorage("pitTodoOnly") private var todoOnly = false
+
+    var body: some View {
+        let info = store.db.info?.key == event ? store.db.info : nil
+        let teams = Set(info?.names.keys.compactMap { Int($0) } ?? [])
+            .union(store.db.pits.map(\.team))
+            .union(store.db.matches.filter { $0.event == event }.map(\.team))
+            .subtracting(store.db.removed[event] ?? [])
+            .sorted()
+        let done = teams.filter { store.pit($0) != nil }.count
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if !teams.isEmpty {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("\(done) of \(teams.count)").font(.title.weight(.heavy)).monospacedDigit()
+                            Text("pit scouted").foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        ProgressView(value: Double(done), total: Double(max(teams.count, 1))).tint(.green)
+                    }
+                    .card()
+                }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 165), spacing: 12)], spacing: 12) {
+                    ForEach(teams.filter { !todoOnly || store.pit($0) == nil }, id: \.self) { team in
+                        NavigationLink(value: team) { tile(team, info: info) }
+                            .buttonStyle(Pressable())
+                            .contextMenu {
+                                if store.pit(team) != nil {
+                                    Button("Mark as not scouted", systemImage: "arrow.uturn.backward") {
+                                        store.db.pits.removeAll { $0.team == team }
+                                    }
+                                }
+                                Button("Remove team from event", systemImage: "trash", role: .destructive) { removing = team }
+                            }
+                    }
+                }
+            }
+            .padding()
+        }
+        .background(Color.page)
+        .overlay {
+            if teams.isEmpty {
+                ContentUnavailableView("No teams yet", systemImage: "wrench.and.screwdriver",
+                    description: Text("Pick your event in Data to list every team, or add one by number with +."))
+            }
+        }
+        .navigationTitle("Pit scouting")
+        .navigationDestination(for: Int.self) { team in
+            PitForm(team: team) { shared = $0 }
+        }
+        .navigationDestination(isPresented: $manual) {
+            PitForm(team: 0) { shared = $0 }
+        }
+        .toolbar {
+            HelpButton(title: "Pit scouting", items: Help.pit)
+            Toggle(isOn: $todoOnly) { Label("To do only", systemImage: "line.3.horizontal.decrease.circle") }
+                .toggleStyle(.button)
+            Button("Add team", systemImage: "plus") { manual = true }
+        }
+        .confirmRemove($removing, store: store, event: event)
+        .sheet(item: $shared) { pit in
+            QRSheet(title: "Pit · \(pit.team)", snapshot: Snapshot(pits: [pit]))
+        }
+    }
+
+    private func tile(_ team: Int, info: EventData?) -> some View {
+        let pit = store.pit(team)
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(verbatim: "\(team)").font(.title2.weight(.heavy)).foregroundStyle(.primary)
+                Spacer()
+                if let pit { RobustBadge(value: pit.robustness) }
+                else { Text("To do").font(.caption.weight(.bold)).foregroundStyle(.secondary) }
+            }
+            Text(info?.names[String(team)] ?? " ").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+            HStack(spacing: 6) {
+                if let address = info?.pits[String(team)] {
+                    Label(address, systemImage: "mappin").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                if pit != nil { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+            }
+        }
+        .padding(14)
+        .background(Color.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(pit == nil ? Color.clear : Color.green.opacity(0.5), lineWidth: 2))
+        .accessibilityElement(children: .combine)
+    }
+}
+
+/// Pit scouting for one team. Robustness follows the 1678 District Event readme rubric; the rest is
+/// what other teams asked in REBUILT pits (Viper, VScouter, 247): ask what you can't see on the
+/// field, and have them show you instead of just telling you.
 struct PitForm: View {
     @Environment(Store.self) private var store
-    @State private var p = PitRecord()
-    @State private var camera = false
-    @State private var shared: PitRecord?
-    @State private var photo: UIImage?
+    @Environment(\.dismiss) private var dismiss
+    @State private var p: PitRecord
+    @State private var loaded = false
+    @State private var confirmUnmark = false
+    private let pickTeam: Bool
+    private let onSave: (PitRecord) -> Void
+
+    init(team: Int, onSave: @escaping (PitRecord) -> Void) {
+        _p = State(initialValue: PitRecord(team: team))
+        pickTeam = team == 0
+        self.onSave = onSave
+    }
 
     static let rubric = [
         1: ("I expect this to fail on the field. Likely DNP. Bad in an unfixable way.",
@@ -27,147 +136,159 @@ struct PitForm: View {
     ]
 
     var body: some View {
+        let name = store.db.info?.names[String(p.team)]
         Form {
-            Section {
-                NumberField(title: "Team number", value: $p.team)
-                    .font(.title2.bold())
-                    .onChange(of: p.team) { _, team in
-                        p = store.pit(team) ?? PitRecord(team: team)
-                        photo = Photos.load(team)
-                    }
-            } footer: {
-                let name = store.db.info?.names[String(p.team)]
-                let pit = store.db.info?.pits[String(p.team)]
-                Text([name, pit.map { "pit \($0)" }, store.pit(p.team) == nil ? nil : "already scouted, saving replaces it"]
-                    .compactMap { $0 }.joined(separator: " · "))
+            if pickTeam {
+                Section {
+                    NumberField(title: "Team number", value: $p.team).font(.title2.bold())
+                        .onChange(of: p.team) { _, team in load(team) }
+                }
             }
 
-            Section("Robustness") {
-                Picker("Rating", selection: $p.robustness) {
+            Section {
+                Picker("Robustness", selection: $p.robustness) {
                     Text("–").tag(0)
                     ForEach(1...5, id: \.self) { Text("\($0)").tag($0) }
                 }
                 .pickerStyle(.segmented)
                 if let level = Self.rubric[p.robustness] {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(level.0).font(.headline)
+                        HStack { RobustBadge(value: p.robustness); Text(level.0).font(.headline) }
                         Text("Mechanical: ").bold() + Text(level.1)
                         Text("Electrical: ").bold() + Text(level.2)
                     }
                     .font(.callout)
                 }
+            } header: {
+                Text("Robustness")
+            } footer: {
+                Text("A mechanically experienced member rates build quality, per the 1678 readme.")
             }
 
-            Section("Robot") {
+            Section("Drivetrain") {
                 Picker("Drivetrain", selection: $p.drivetrain) {
                     ForEach(["Swerve", "Tank", "Mecanum", "Other"], id: \.self) { Text($0) }
                 }
-                LabeledContent("Fuel it holds") {
-                    NumberField(title: "0", value: $p.hopper).multilineTextAlignment(.trailing)
-                }
                 Toggle("Fits under the trench", isOn: $p.trench)
                 Toggle("Drives over the bump", isOn: $p.bump)
+            }
+
+            Section {
+                Toggle("From the floor", isOn: $p.floorIntake)
+                Toggle("From the outpost (human player)", isOn: $p.outpostIntake)
+                Toggle("From the depot", isOn: $p.depotIntake)
+                number("Fuel it holds", $p.hopper)
+            } header: {
+                Text("Intake")
+            } footer: {
+                Text("Ask them to show you: count fuel into the hopper rather than taking their number.")
+            }
+
+            Section {
+                Picker("Range", selection: $p.range) {
+                    Text("Not sure").tag(0)
+                    Text("At the hub").tag(1)
+                    Text("Anywhere in our zone").tag(2)
+                    Text("From the neutral zone").tag(3)
+                }
+                number("Shot rate (fuel / second)", $p.shotRate)
+                Toggle("Turret", isOn: $p.turret)
                 Toggle("Shoots while moving", isOn: $p.shootsOnMove)
+                Toggle("Passes fuel from midfield back to its own side", isOn: $p.canPass)
+            } header: {
+                Text("Shooting")
+            } footer: {
+                Text("Claimed numbers are compared with scouted ones on the team page.")
+            }
+
+            Section("Tower") {
                 Picker("Highest climb", selection: $p.maxClimb) {
                     Text("None").tag(0)
                     ForEach(1...3, id: \.self) { Text("Level \($0)").tag($0) }
                 }
-                Toggle("Climbs in auto", isOn: $p.autoClimb)
+                number("Seconds to climb", $p.climbSeconds)
+                Toggle("Climbs on the side (leaves room for partners)", isOn: $p.sideClimb)
+                Toggle("Climbs Level 1 in auto", isOn: $p.autoClimb)
             }
 
-            Section("Photo") {
-                if let photo {
-                    Image(uiImage: photo).resizable().scaledToFit().frame(maxHeight: 320)
+            Section("Auto") {
+                number("Autos they can run", $p.autoCount)
+                number("Fuel in their best auto", $p.autoFuelClaim)
+                Toggle("Goes to the neutral zone in auto", isOn: $p.autoNeutral)
+                Picker("How often their auto works", selection: $p.autoConsistency) {
+                    ForEach(PitRecord.autoConsistencyLabels.indices, id: \.self) { Text(PitRecord.autoConsistencyLabels[$0]).tag($0) }
                 }
-                Button(photo == nil ? "Take photo" : "Retake photo", systemImage: "camera") { camera = true }
-                    .disabled(p.team == 0)
+            }
+
+            Section("Team") {
+                Picker("Role they want", selection: $p.role) {
+                    ForEach(Role.allCases, id: \.self) { Text($0.rawValue) }
+                }
+                Picker("Driver experience", selection: $p.driverYears) {
+                    Text("Not sure").tag(0)
+                    Text("1st year").tag(1)
+                    Text("2nd year").tag(2)
+                    Text("3+ years").tag(3)
+                }
             }
 
             Section("Notes") {
+                TextField("What's broken or worrying them?", text: $p.worries, axis: .vertical)
+                    .lineLimit(2...6)
                 TextField("Architecture, autos, anything odd…", text: $p.notes, axis: .vertical)
                     .lineLimit(3...8)
             }
 
             Section {
-                Button("Save pit record") {
+                Button {
                     store.save(p)
-                    shared = store.pit(p.team)
-                    p = PitRecord()
-                    photo = nil
+                    if let saved = store.pit(p.team) { onSave(saved) }
+                    dismiss()
+                } label: {
+                    Label("Save pit record", systemImage: "checkmark.circle.fill")
+                        .font(.headline)
+                        .frame(maxWidth: .infinity, minHeight: 50)
+                        .foregroundStyle(Color.navy)
+                        .background(Color.fuel, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                 }
-                .font(.headline)
+                .buttonStyle(Pressable())
                 .disabled(p.team == 0)
+                .listRowInsets(EdgeInsets())
+                .listRowBackground(Color.clear)
+            }
+
+            if store.pit(p.team) != nil {
+                Section {
+                    Button("Mark as not scouted", systemImage: "arrow.uturn.backward", role: .destructive) { confirmUnmark = true }
+                        .frame(maxWidth: .infinity)
+                } footer: {
+                    Text("Deletes this team's pit answers on this iPad so it shows as To do again.")
+                }
             }
         }
-        .navigationTitle("Pit scouting")
+        .confirmationDialog("Mark \(String(p.team)) as not scouted?", isPresented: $confirmUnmark, titleVisibility: .visible) {
+            Button("Delete pit answers", role: .destructive) {
+                store.db.pits.removeAll { $0.team == p.team }
+                dismiss()
+            }
+        } message: {
+            Text("Its pit answers are deleted from this iPad.")
+        }
+        .navigationTitle(p.team == 0 ? Text("New pit record") : Text(verbatim: "\(p.team)\(name.map { " · \($0)" } ?? "")"))
+        .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
-        .fullScreenCover(isPresented: $camera) {
-            CameraPicker { image in
-                Photos.save(image, team: p.team)
-                photo = Photos.load(p.team)
-                camera = false
-            } onCancel: { camera = false }
-            .ignoresSafeArea()
-        }
-        .sheet(item: $shared) { pit in
-            QRSheet(title: "Pit · \(pit.team)", snapshot: Snapshot(pits: [pit]))
+        .onAppear {
+            if !loaded { load(p.team); loaded = true }
         }
     }
-}
 
-/// Robot photos stay on the iPad that took them (too big for a QR code).
-enum Photos {
-    static func url(_ team: Int) -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("photos/\(team).jpg")
-    }
-
-    static func save(_ image: UIImage, team: Int) {
-        let url = url(team)
-        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? image.jpeg()?.write(to: url, options: .atomic)
-    }
-
-    static func load(_ team: Int) -> UIImage? { UIImage(contentsOfFile: url(team).path) }
-}
-
-/// System camera; falls back to the photo library where there's no camera (the simulator).
-struct CameraPicker: UIViewControllerRepresentable {
-    let onImage: (UIImage) -> Void
-    let onCancel: () -> Void
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.sourceType = UIImagePickerController.isSourceTypeAvailable(.camera) ? .camera : .photoLibrary
-        picker.delegate = context.coordinator
-        return picker
-    }
-
-    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let parent: CameraPicker
-        init(parent: CameraPicker) { self.parent = parent }
-
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            if let image = info[.originalImage] as? UIImage { parent.onImage(image) } else { parent.onCancel() }
+    private func number(_ title: String, _ value: Binding<Int>) -> some View {
+        LabeledContent(title) {
+            NumberField(title: "–", value: value).multilineTextAlignment(.trailing)
         }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.onCancel() }
     }
-}
 
-extension UIImage {
-    /// Shrinks the photo so a team's worth of robots doesn't fill the iPad.
-    func jpeg(maxSide: CGFloat = 1600) -> Data? {
-        let scale = min(1, maxSide / max(size.width, size.height))
-        let target = CGSize(width: size.width * scale, height: size.height * scale)
-        let format = UIGraphicsImageRendererFormat()
-        format.scale = 1
-        return UIGraphicsImageRenderer(size: target, format: format).jpegData(withCompressionQuality: 0.75) { _ in
-            draw(in: CGRect(origin: .zero, size: target))
-        }
+    private func load(_ team: Int) {
+        p = store.pit(team) ?? PitRecord(team: team)
     }
 }

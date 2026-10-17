@@ -11,6 +11,13 @@ struct DataView: View {
     @AppStorage("event") private var event = ""
     @AppStorage("tbaKey") private var tbaKey = ""
     @AppStorage("nexusKey") private var nexusKey = ""
+    @AppStorage("ourTeam") private var ourTeam = 0
+    @AppStorage("syncURL") private var syncURL = Fetch.defaultServer
+    @AppStorage("syncCode") private var syncCode = ""
+    @State private var syncingNow = false
+    @AppStorage("eventName") private var eventName = ""
+    @State private var choosing = false
+    @State private var finding = false
     @State private var downloading = false
     @State private var downloadLog: [String] = []
     @State private var scanning = false
@@ -18,40 +25,66 @@ struct DataView: View {
     @State private var message: String?
 
     var body: some View {
-        // One code per record: mine at this event, plus every pit record (newest wins on merge).
+        // One code per record: my matches and comparisons at this event, plus every pit record (newest wins on merge).
         let codes = store.db.matches
             .filter { $0.event == event && $0.scout == scout }
             .sorted { $0.match > $1.match }
             .map { ("Match \($0.match) · \($0.team)", Snapshot(matches: [$0])) }
+            + store.db.rankings.filter { $0.event == event && $0.scout == scout }
+                .map { ("Compare · match \($0.match)", Snapshot(rankings: [$0])) }
             + store.db.pits.map { ("Pit · \($0.team)", Snapshot(pits: [$0])) }
         NavigationStack {
             Form {
                 Section {
                     TextField("Your name", text: $scout)
-                    TextField("Event code, e.g. 2026camb", text: $event)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
+                    LabeledContent("Our team number") {
+                        NumberField(title: "e.g. 1678", value: $ourTeam).multilineTextAlignment(.trailing)
+                    }
+                    Button { choosing = true } label: {
+                        LabeledContent {
+                            Text(event.isEmpty ? "Choose" : event).foregroundStyle(.secondary)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Event").foregroundStyle(Color.primary)
+                                if !eventName.isEmpty { Text(eventName).font(.caption).foregroundStyle(Color.gray) }
+                            }
+                        }
+                    }
+                    Button(finding ? "Looking…" : "Find the event we're at", systemImage: "location.magnifyingglass") {
+                        Task { await findMine() }
+                    }
+                    .disabled(finding || ourTeam == 0 || (tbaKey.isEmpty && syncCode.isEmpty))
                 } header: {
                     Text("This iPad")
                 } footer: {
-                    Text("New records are tagged with your name and the event. Teams and Picklist show the current event only.")
+                    Text("Find looks up your team on The Blue Alliance and picks the event happening today, or your next one. Choosing an event downloads every team, the schedule, OPR, EPA, and pit numbers. New records are tagged with your name and the event.")
                 }
 
                 Section {
-                    SecureField("The Blue Alliance read API key", text: $tbaKey)
-                    SecureField("Nexus API key", text: $nexusKey)
-                    Button(downloading ? "Downloading…" : "Download schedule, teams and OPRs", systemImage: "arrow.down.circle") {
+                    Button(downloading ? "Downloading…" : "Refresh event data", systemImage: "arrow.down.circle") {
                         Task { await download() }
                     }
-                    .disabled(downloading || event.isEmpty || (tbaKey.isEmpty && nexusKey.isEmpty))
-                    ForEach(downloadLog, id: \.self) { Text($0).foregroundStyle(.secondary) }
+                    .disabled(downloading || event.isEmpty)
+                    ForEach(downloadLog, id: \.self) { Text($0).font(.callout).foregroundStyle(.secondary) }
                     if let info = store.db.info, info.key == event, info.fetched > .distantPast {
                         LabeledContent("Last download", value: info.fetched.formatted(date: .abbreviated, time: .shortened))
                     }
+                    SecureField("The Blue Alliance read API key", text: $tbaKey)
+                    SecureField("Nexus API key (optional)", text: $nexusKey)
                 } header: {
-                    Text("The Blue Alliance & Nexus")
+                    Text("The Blue Alliance, Statbotics & Nexus")
                 } footer: {
-                    Text("Get keys at [thebluealliance.com/account](https://www.thebluealliance.com/account) and [frc.nexus/api](https://frc.nexus/api). The event code is the TBA event key. Downloads are kept for offline use and ride along in Export everything, so scouts with no internet can import them. With a Nexus key, the schedule and \"now queuing\" refresh every minute while the app is open.")
+                    Text("Get keys at [thebluealliance.com/account](https://www.thebluealliance.com/account) and [frc.nexus/api](https://frc.nexus/api). Statbotics EPA needs no key. Downloads are kept for offline use and ride along in Export everything, so scouts with no internet can import them. While the app is open it refreshes on its own: TBA and Statbotics every 5 minutes, and with a Nexus key, \"now queuing\" and alliance picks every minute.")
+                }
+
+                Section {
+                    ShareLink(item: Slack.overview(db: store.db, event: event, eventName: eventName, ourTeam: ourTeam)) {
+                        Label("Share event overview", systemImage: "text.bubble")
+                    }
+                } header: {
+                    Text("Slack")
+                } footer: {
+                    Text("Top scorers, climbers, defense, red flags, our matches, and DNPs. Pick Slack in the share sheet. Match plans (Board), team pages, and the picklist have their own Share to Slack buttons.")
                 }
 
                 Section("Send to the lead scout") {
@@ -73,10 +106,76 @@ struct DataView: View {
                     }
                 }
 
+                Section {
+                    SecureField("Team code", text: $syncCode)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                    Button(syncingNow ? "Syncing…" : "Sync now", systemImage: "arrow.triangle.2.circlepath") {
+                        Task {
+                            syncingNow = true
+                            await store.runSync(server: syncURL, code: syncCode, event: event)
+                            syncingNow = false
+                        }
+                    }
+                    .disabled(syncingNow || syncCode.isEmpty || event.isEmpty)
+                    if !store.syncStatus.isEmpty { Text(store.syncStatus).font(.callout).foregroundStyle(.secondary) }
+                    NavigationLink {
+                        PhoneSetup(link: phoneLink)
+                    } label: {
+                        Label("Set up a phone", systemImage: "iphone")
+                    }
+                    .disabled(syncCode.isEmpty || event.isEmpty)
+                    TextField("Server", text: $syncURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("Team sync")
+                } footer: {
+                    Text("With the team code, every iPad and phone shares this event's scouting automatically (every 20 seconds while the app is open), so each device can scout a different robot in the same match. Phones use the web app at [frc-scout-one.vercel.app](https://frc-scout-one.vercel.app). The team server also holds the TBA and Nexus keys, so devices without their own keys still get event data. Sync only adds and updates; it never deletes anything.")
+                }
+
                 Section("Collect from scouts") {
                     Button("Scan QR codes", systemImage: "qrcode.viewfinder") { scanning = true }
                     Button("Import an export file", systemImage: "square.and.arrow.down") { importing = true }
                     if let message { Text(message).foregroundStyle(.secondary) }
+                }
+
+                let events = Set(store.db.matches.map(\.event) + store.db.rankings.map(\.event)).filter { !$0.isEmpty }.sorted()
+                if !events.isEmpty {
+                    Section {
+                        ForEach(events, id: \.self) { key in
+                            Button {
+                                Task { await choose(EventSummary(key: key, name: store.db.eventNames[key] ?? "")) }
+                            } label: {
+                                LabeledContent {
+                                    Text(key == event ? "current" : "\(store.db.matches.filter { $0.event == key }.count) matches")
+                                } label: {
+                                    Text(store.db.eventNames[key] ?? key).foregroundStyle(Color.primary)
+                                    Text(key).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                            .disabled(key == event)
+                        }
+                    } header: {
+                        Text("Events on this iPad")
+                    } footer: {
+                        Text("Scouting from every competition stays here. Tap one to look at it again; nothing from other events is ever deleted. Team pages also show each team's notes from other events.")
+                    }
+                }
+
+                if let gone = store.db.removed[event], !gone.isEmpty {
+                    Section {
+                        Text(gone.map(String.init).joined(separator: ", "))
+                        Button("Put them back on the lists", systemImage: "arrow.uturn.backward") {
+                            store.db.removed[event] = nil
+                        }
+                    } header: {
+                        Text("Removed teams")
+                    } footer: {
+                        Text("Their deleted scouting data doesn't come back, but scanning a scout's QR codes again restores it.")
+                    }
                 }
 
                 Section {
@@ -89,6 +188,12 @@ struct DataView: View {
                 }
             }
             .navigationTitle("Data")
+            .toolbar { HelpButton(title: "Data", items: Help.data) }
+            .sheet(isPresented: $choosing) {
+                EventPicker(ourTeam: ourTeam, tbaKey: tbaKey, nexusKey: nexusKey) { picked in
+                    Task { await choose(picked) }
+                }
+            }
             .sheet(isPresented: $scanning) {
                 ScanSheet()
             }
@@ -98,6 +203,7 @@ struct DataView: View {
                     let access = url.startAccessingSecurityScopedResource()
                     defer { if access { url.stopAccessingSecurityScopedResource() } }
                     let added = store.db.merge(try Snapshot.decode(Data(contentsOf: url)))
+                    if added > 0 { UserDefaults.standard.set(true, forKey: "syncPushAll") }   // share imported records too
                     message = "Imported \(added) new or updated records."
                 } catch {
                     message = "Couldn't read that file. Is it a FRC Scout export?"
@@ -108,12 +214,134 @@ struct DataView: View {
 }
 
 extension DataView {
+    /// Opens the web app already set up: team code, event, and team number ride after the #.
+    private var phoneLink: String {
+        var parts = URLComponents()
+        parts.queryItems = [URLQueryItem(name: "code", value: syncCode), URLQueryItem(name: "event", value: event),
+                            URLQueryItem(name: "name", value: eventName), URLQueryItem(name: "team", value: String(ourTeam))]
+        return syncURL + "/#" + (parts.percentEncodedQuery ?? "")
+    }
+
+    private func findMine() async {
+        finding = true
+        let (mine, _, errors) = await Fetch.events(team: ourTeam, tbaKey: tbaKey, nexusKey: "")
+        if let current = Fetch.current(mine) {
+            await choose(current)
+        } else {
+            downloadLog = errors.isEmpty ? ["No \(Calendar.current.component(.year, from: Date())) events found for team \(ourTeam)."] : errors
+        }
+        finding = false
+    }
+
+    private func choose(_ e: EventSummary) async {
+        event = e.key
+        eventName = e.name
+        if !e.name.isEmpty { store.db.eventNames[e.key] = e.name }
+        await download()
+    }
+
     private func download() async {
         downloading = true
         let (info, log) = await Fetch.event(event, tbaKey: tbaKey, nexusKey: nexusKey, into: store.db.info)
         store.db.info = info
         downloadLog = log
         downloading = false
+    }
+}
+
+/// This year's events to pick from, with your team's own on top.
+struct EventPicker: View {
+    let ourTeam: Int
+    let tbaKey: String
+    let nexusKey: String
+    let onPick: (EventSummary) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var mine: [EventSummary] = []
+    @State private var all: [EventSummary] = []
+    @State private var errors: [String] = []
+    @State private var loading = true
+    @State private var search = ""
+    @State private var code = ""
+
+    var body: some View {
+        let today = Fetch.day(Date())
+        let found = all.filter {
+            search.isEmpty || $0.name.localizedCaseInsensitiveContains(search)
+                || $0.key.localizedCaseInsensitiveContains(search) || $0.place.localizedCaseInsensitiveContains(search)
+        }
+        NavigationStack {
+            List {
+                if tbaKey.isEmpty && nexusKey.isEmpty {
+                    Text("Add a TBA key in Data to browse events, or type the event code below.").foregroundStyle(.secondary)
+                }
+                ForEach(errors, id: \.self) { Text($0).foregroundStyle(.red) }
+                if !mine.isEmpty && search.isEmpty {
+                    Section("Team \(ourTeam)") { ForEach(mine) { row($0, today: today) } }
+                }
+                if !found.isEmpty {
+                    Section(search.isEmpty ? "All events" : "Results") { ForEach(found) { row($0, today: today) } }
+                }
+                Section("Not listed? Type the event code") {
+                    HStack {
+                        TextField("e.g. 2026camb", text: $code)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Button("Use") { pick(EventSummary(key: code.lowercased().trimmingCharacters(in: .whitespaces))) }
+                            .disabled(code.trimmingCharacters(in: .whitespaces).isEmpty)
+                    }
+                }
+            }
+            .overlay { if loading { ProgressView("Loading events…") } }
+            .searchable(text: $search, prompt: "Name, city, or code")
+            .navigationTitle("Choose event")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { Button("Cancel") { dismiss() } }
+            .task {
+                (mine, all, errors) = await Fetch.events(team: ourTeam, tbaKey: tbaKey, nexusKey: nexusKey)
+                loading = false
+            }
+        }
+    }
+
+    private func row(_ e: EventSummary, today: String) -> some View {
+        Button { pick(e) } label: {
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(e.name).font(.headline).foregroundStyle(Color.primary)
+                    if e.start <= today && today <= e.end { pill("NOW", .green) }
+                }
+                Text([e.key, e.place, e.start == e.end ? e.start : "\(e.start) – \(e.end)"].filter { !$0.isEmpty }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func pick(_ e: EventSummary) {
+        onPick(e)
+        dismiss()
+    }
+}
+
+/// A QR the iPhone camera opens straight into the web app, already set up.
+struct PhoneSetup: View {
+    let link: String
+
+    var body: some View {
+        VStack(spacing: 20) {
+            if let image = QRCode.image(link) {
+                Image(uiImage: image).interpolation(.none).resizable().scaledToFit()
+                    .padding(20).background(.white)
+                    .frame(maxWidth: 420)
+                    .accessibilityLabel("Phone setup QR code")
+            }
+            Text("Open the Camera on the iPhone and point it at this code, then tap the link. FRC Scout opens with the team code, event, and team number filled in. Then: Share › Add to Home Screen.")
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 480)
+            Text("Anyone with this code can read and add your team's scouting, so only show it to your team.")
+                .font(.footnote).foregroundStyle(.secondary).multilineTextAlignment(.center)
+        }
+        .padding()
+        .navigationTitle("Set up a phone")
     }
 }
 
@@ -158,20 +386,32 @@ struct QRCode: View {
     }
 }
 
-/// Shown right after saving, so the lead scout can scan it on the spot.
+/// Shown right after saving, so the lead scout can scan it on the spot. Several records (a whole
+/// alliance) get one code each; swipe between them.
 struct QRSheet: View {
     let title: String
-    let snapshot: Snapshot
+    let codes: [(String, Snapshot)]
     @Environment(\.dismiss) private var dismiss
+
+    init(title: String, snapshot: Snapshot) { self.init(title: title, codes: [(title, snapshot)]) }
+
+    init(title: String, codes: [(String, Snapshot)]) {
+        self.title = title
+        self.codes = codes
+    }
 
     var body: some View {
         NavigationStack {
-            QRCode(snapshot: snapshot)
-                .frame(maxWidth: 520)
-                .padding()
-                .navigationTitle("Saved: \(title)")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar { Button("Done") { dismiss() } }
+            Group {
+                if codes.count == 1 {
+                    QRCode(snapshot: codes[0].1).frame(maxWidth: 520).padding()
+                } else {
+                    QRPager(codes: codes)
+                }
+            }
+            .navigationTitle("Saved: \(title)")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { Button("Done") { dismiss() } }
         }
     }
 }
@@ -213,6 +453,7 @@ struct ScanSheet: View {
                         guard seen.insert(code).inserted else { return }
                         if let snapshot = try? Snapshot.decode(Data(code.utf8)) {
                             added += store.db.merge(snapshot)
+                            UserDefaults.standard.set(true, forKey: "syncPushAll")   // share scanned records with the team too
                         }
                     } onError: { error = $0 }
                     .ignoresSafeArea()

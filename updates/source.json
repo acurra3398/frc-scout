@@ -27,7 +27,7 @@
       "appPermissions": {
         "entitlements": [],
         "privacy": {
-          "NSCameraUsageDescription": "FRC Scout uses the camera to scan scouting QR codes and photograph robots in the pits."
+          "NSCameraUsageDescription": "FRC Scout uses the camera to scan scouting QR codes."
         }
       }
     }

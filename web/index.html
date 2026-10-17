@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#F5B731">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="FRC Scout">
+  <title>FRC Scout</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="view"></main>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <nav id="tabs" aria-label="Sections">
+    <button data-tab="match"><span aria-hidden="true">🔭</span>Match</button>
+    <button data-tab="pit"><span aria-hidden="true">🔧</span>Pit</button>
+    <button data-tab="teams"><span aria-hidden="true">📋</span>Teams</button>
+    <button data-tab="setup"><span aria-hidden="true">⚙️</span>Setup</button>
+  </nav>
+  <script src="app.js" type="module"></script>
+</body>
+</html>

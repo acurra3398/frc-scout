@@ -10,97 +10,42 @@ struct ScoutApp: App {
         WindowGroup {
             TabView(selection: $tab) {
                 NavigationStack { MatchForm() }.tabItem { Label("Match", systemImage: "binoculars") }.tag("match")
-                NavigationStack { PitForm() }.tabItem { Label("Pit", systemImage: "wrench.and.screwdriver") }.tag("pit")
+                NavigationStack { PitList() }.tabItem { Label("Pit", systemImage: "wrench.and.screwdriver") }.tag("pit")
                 TeamsView().tabItem { Label("Teams", systemImage: "tablecells") }.tag("teams")
-                PicklistView().tabItem { Label("Picklist", systemImage: "list.number") }.tag("picklist")
+                CompareView().tabItem { Label("H2H", systemImage: "arrow.up.arrow.down") }.tag("compare")
+                PicklistView().tabItem { Label("Picks", systemImage: "list.number") }.tag("picklist")
                 BoardView().tabItem { Label("Board", systemImage: "pencil.and.outline") }.tag("board")
                 DataView().tabItem { Label("Data", systemImage: "qrcode") }.tag("data")
             }
+            .fontDesign(.rounded)
             .environment(store)
             .task {
-                // Nexus is live at events: keep the schedule and "now queuing" fresh while the app is open.
+                // Every 20 s while the app is open: team sync (when set up). Every minute: Nexus (live
+                // queue and picks). Every 5 minutes: TBA and Statbotics. Also right at launch.
+                // Offline tries change nothing.
+                let defaults = UserDefaults.standard
+                if let event = defaults.string(forKey: "event"), let name = defaults.string(forKey: "eventName"),
+                   !event.isEmpty, !name.isEmpty, store.db.eventNames[event] == nil {
+                    store.db.eventNames[event] = name
+                }
+                var tick = 0
                 while !Task.isCancelled {
                     let defaults = UserDefaults.standard
-                    if let key = defaults.string(forKey: "nexusKey"), !key.isEmpty,
-                       let event = defaults.string(forKey: "event"), !event.isEmpty {
-                        let (info, _) = await Fetch.event(event, tbaKey: "", nexusKey: key, into: store.db.info)
-                        if info != store.db.info { store.db.info = info }
+                    let event = defaults.string(forKey: "event") ?? ""
+                    let code = defaults.string(forKey: "syncCode") ?? ""
+                    let server = defaults.string(forKey: "syncURL") ?? Fetch.defaultServer
+                    if !event.isEmpty {
+                        let nexus = !(defaults.string(forKey: "nexusKey") ?? "").isEmpty || !code.isEmpty
+                        if tick % 15 == 0 || (tick % 3 == 0 && nexus) {
+                            let full = tick % 15 == 0
+                            let (info, _) = await Fetch.event(event, tbaKey: full ? defaults.string(forKey: "tbaKey") ?? "" : "",
+                                                              nexusKey: defaults.string(forKey: "nexusKey") ?? "", statbotics: full, into: store.db.info)
+                            if info != store.db.info { store.db.info = info }
+                        }
+                        if !code.isEmpty { await store.runSync(server: server, code: code, event: event) }
                     }
-                    try? await Task.sleep(for: .seconds(60))
-                }
-            }
-        }
-    }
-}
-
-/// Integer field that updates its binding on every keystroke (TextField(value:) waits for return).
-struct NumberField: View {
-    let title: String
-    @Binding var value: Int
-
-    var body: some View {
-        TextField(title, text: Binding(
-            get: { value == 0 ? "" : String(value) },
-            set: { value = Int($0.filter(\.isNumber).prefix(5)) ?? 0 }))
-        .keyboardType(.numberPad)
-        .monospacedDigit()
-    }
-}
-
-/// Big tap targets for counting while watching the field: -1, +1, +5, +10.
-struct Counter: View {
-    let title: String
-    @Binding var value: Int
-    var steps = [1, 5, 10]
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(title).font(.headline)
-                Spacer()
-                Text("\(value)").font(.system(size: 40, weight: .bold, design: .rounded)).monospacedDigit()
-                    .contentTransition(.numericText())
-            }
-            HStack(spacing: 8) {
-                Button { value = max(0, value - 1) } label: {
-                    Image(systemName: "minus").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 48)
-                }
-                .buttonStyle(.bordered)
-                .accessibilityLabel("Minus one \(title)")
-                ForEach(steps, id: \.self) { step in
-                    Button { withAnimation(.snappy) { value += step } } label: {
-                        Text("+\(step)").font(.title3.bold()).frame(maxWidth: .infinity, minHeight: 48)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityLabel("Add \(step) \(title)")
-                }
-            }
-        }
-        .sensoryFeedback(.increase, trigger: value)
-    }
-}
-
-/// 1-5 rating where tapping the current value clears it back to 0 (not rated).
-struct Rating: View {
-    let title: String
-    @Binding var value: Int
-    var caption = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(caption).font(.caption).foregroundStyle(.secondary)
-            }
-            HStack(spacing: 8) {
-                ForEach(1...5, id: \.self) { n in
-                    Button { value = value == n ? 0 : n } label: {
-                        Text("\(n)").font(.headline).frame(maxWidth: .infinity, minHeight: 40)
-                    }
-                    .buttonStyle(.bordered)
-                    .tint(value == n ? .accentColor : .secondary)
-                    .accessibilityAddTraits(value == n ? .isSelected : [])
+                    tick += 1
+                    try? await Task.sleep(for: .seconds(20))
                 }
             }
         }
