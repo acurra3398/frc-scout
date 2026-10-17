@@ -13,7 +13,17 @@
       "localizedDescription": "iPad scouting for FRC REBUILT: count fuel and climbs per robot, pit scout with the robustness rubric, sort teams, build a picklist, and draw plays on the field. Scouts hand data to the lead with QR codes, no Wi-Fi needed.",
       "iconURL": "https://raw.githubusercontent.com/acurra3398/frc-scout/main/updates/icon.png",
       "tintColor": "F5B731",
-      "versions": [],
+      "versions": [
+        {
+          "version": "1.0",
+          "buildVersion": "1",
+          "date": "2026-10-17T01:31:23Z",
+          "localizedDescription": "First release: match and pit scouting, team table, picklist, strategy board, QR sync, TBA and Nexus downloads.",
+          "downloadURL": "https://github.com/acurra3398/frc-scout/releases/download/v1.0/Scout.ipa",
+          "size": 938313,
+          "minOSVersion": "17.0"
+        }
+      ],
       "appPermissions": {
         "entitlements": [],
         "privacy": {
