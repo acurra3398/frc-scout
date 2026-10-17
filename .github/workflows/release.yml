@@ -1,0 +1,38 @@
+# Publishes an update: Actions › Release › Run workflow, type a version and what changed.
+# It builds the IPA, attaches it to a GitHub release, and adds it to updates/source.json,
+# which SideStore checks for updates.
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "New version, higher than the last one (e.g. 1.1)"
+        required: true
+      notes:
+        description: "What changed"
+        required: true
+        default: "Fixes and improvements."
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-26
+    env:
+      VERSION: ${{ inputs.version }}
+      NOTES: ${{ inputs.notes }}
+      BUILD: ${{ github.run_number }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./build.sh --check
+      - run: ./build.sh --ipa "$VERSION" "$BUILD"
+      - name: Publish
+        run: |
+          gh release create "v$VERSION" build/Scout.ipa --target "$GITHUB_SHA" --title "FRC Scout $VERSION" --notes "$NOTES"
+          python3 updates/add_version.py "$VERSION" "$BUILD" "$NOTES" "$(stat -f%z build/Scout.ipa)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "Release $VERSION"
+          git push
