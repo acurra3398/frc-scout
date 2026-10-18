@@ -15,6 +15,10 @@ struct BoardView: View {
     @State private var ink = Color.yellow
     @State private var erasing = false
     @State private var loaded = ""
+    @Environment(\.horizontalSizeClass) private var hSize
+    private var compact: Bool { hSize == .compact }   // iPhone
+    /// Each driver-station column as a fraction of field length; wider on iPhone so team numbers fit.
+    private var stationWidth: Double { compact ? 0.1 : 0.075 }
 
     /// Positions as fractions of the field (x: red wall → blue wall, y: top → bottom).
     static let start: [CGPoint] = [
@@ -24,13 +28,12 @@ struct BoardView: View {
     static let inks: [(String, Color)] = [("Yellow", .yellow), ("White", .white), ("Black", .black), ("Red", .red), ("Blue", .blue), ("Green", .green)]
     static let fieldAspect = 16.541 / 8.069       // meters, from WPILib's field JSON
     static let robotSize = 0.9 / 16.541           // ~0.9 m bumper-to-bumper, as a fraction of field length
-    static let stationWidth = 0.075               // each driver-station column, as a fraction of field length
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 12) {
                 GeometryReader { geo in
-                    let size = CGSize(width: geo.size.width / (1 + 2 * Self.stationWidth), height: geo.size.height)
+                    let size = CGSize(width: geo.size.width / (1 + 2 * stationWidth), height: geo.size.height)
                     HStack(spacing: 0) {
                     stations(red: true)
                     ZStack {
@@ -55,9 +58,13 @@ struct BoardView: View {
                     stations(red: false)
                     }
                 }
-                .aspectRatio(Self.fieldAspect * (1 + 2 * Self.stationWidth), contentMode: .fit)
+                .aspectRatio(Self.fieldAspect * (1 + 2 * stationWidth), contentMode: .fit)
 
-                HStack(spacing: 14) {
+                // The field stays put; everything under it scrolls (the planner runs long on iPhone).
+                ScrollView { VStack(spacing: 12) {
+
+                (compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout(spacing: 14))) {
+                  HStack(spacing: compact ? 10 : 14) {
                     ForEach(Self.inks, id: \.0) { name, color in
                         Button { ink = color; erasing = false } label: {
                             Circle().fill(color)
@@ -65,12 +72,15 @@ struct BoardView: View {
                                 .frame(width: 34, height: 34)
                         }
                         .accessibilityLabel("\(name) pen")
+                        .buttonStyle(.plain)
                     }
                     Button { erasing.toggle() } label: {
                         Image(systemName: erasing ? "eraser.fill" : "eraser").font(.title2)
                     }
                     .accessibilityLabel("Eraser")
-                    Spacer()
+                  }
+                  if !compact { Spacer() }
+                  HStack(spacing: 14) {
                     Button("Undo", systemImage: "arrow.uturn.backward") {
                         if !canvas.drawing.strokes.isEmpty { canvas.drawing.strokes.removeLast() }
                     }
@@ -79,6 +89,7 @@ struct BoardView: View {
                         withAnimation { robots = Self.start }
                     }
                     Button("Flip driver stations", systemImage: "arrow.up.arrow.down") { flipStations.toggle() }
+                  }
                 }
                 .buttonStyle(.bordered)
                 .labelStyle(.iconOnly)
@@ -106,17 +117,22 @@ struct BoardView: View {
                     Spacer()
                 }
                 .lineLimit(1)
-                HStack(spacing: 8) {
-                    ForEach(0..<6, id: \.self) { i in
-                        NumberField(title: i < 3 ? "Red \(i + 1)" : "Blue \(i - 2)", value: $teams[i])
-                            .textFieldStyle(.roundedBorder)
-                            .frame(maxWidth: 110)
-                            .overlay(RoundedRectangle(cornerRadius: 6).stroke(i < 3 ? Color.red : .blue, lineWidth: 2))
-                        if i == 2 { Spacer() }
+                (compact ? AnyLayout(VStackLayout(spacing: 8)) : AnyLayout(HStackLayout(spacing: 8))) {
+                    ForEach([0, 3], id: \.self) { start in
+                        HStack(spacing: 8) {
+                            ForEach(start..<start + 3, id: \.self) { i in
+                                NumberField(title: i < 3 ? "Red \(i + 1)" : "Blue \(i - 2)", value: $teams[i])
+                                    .textFieldStyle(.roundedBorder)
+                                    .frame(maxWidth: compact ? .infinity : 110)
+                                    .overlay(RoundedRectangle(cornerRadius: 6).stroke(i < 3 ? Color.red : .blue, lineWidth: 2))
+                            }
+                        }
+                        if start == 0 && !compact { Spacer() }
                     }
                 }
                 if teams.contains(where: { $0 > 0 }) { planner } else if !loaded.isEmpty { Text(loaded).foregroundStyle(.secondary) }
-                Spacer(minLength: 0)
+                } }
+                .scrollDismissesKeyboard(.interactively)
             }
             .padding()
             .navigationTitle("Strategy board")
@@ -156,7 +172,7 @@ struct BoardView: View {
             }
           }
           if !plannerCollapsed {
-          HStack(alignment: .top, spacing: 12) {
+          (compact ? AnyLayout(VStackLayout(spacing: 12)) : AnyLayout(HStackLayout(alignment: .top, spacing: 12))) {
             ForEach([true, false], id: \.self) { red in
                 let alliance = Array(teams[red ? 0..<3 : 3..<6])
                 VStack(alignment: .leading, spacing: 8) {
@@ -168,14 +184,18 @@ struct BoardView: View {
                     }
                     ForEach(alliance.filter { $0 > 0 }, id: \.self) { team in
                         let s = stats[team]
-                        HStack(spacing: 10) {
-                            Text(verbatim: "\(team)").font(.headline).frame(width: 56, alignment: .leading)
-                            if team == ourTeam { pill("US", .accentColor) }
-                            Text(s?.name ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                            Spacer()
-                            Text("\(f(s?.points)) pts · \((s?.liveEPA ?? 0) > 0 ? "live" : "EPA") \(f((s?.liveEPA ?? 0) > 0 ? s!.liveEPA : s?.epa ?? 0)) · tower \(f(s?.tower))")
+                        let numbers = Text("\(f(s?.points)) pts · \((s?.liveEPA ?? 0) > 0 ? "live" : "EPA") \(f((s?.liveEPA ?? 0) > 0 ? s!.liveEPA : s?.epa ?? 0)) · tower \(f(s?.tower))")
                                 .font(.caption.weight(.semibold)).monospacedDigit()
-                            if let s { RobustBadge(value: Int(s.robustness)) }
+                        VStack(alignment: .leading, spacing: 2) {
+                            HStack(spacing: 10) {
+                                Text(verbatim: "\(team)").font(.headline).frame(width: 56, alignment: .leading)
+                                if team == ourTeam { pill("US", .accentColor) }
+                                Text(s?.name ?? "").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                Spacer()
+                                if !compact { numbers }
+                                if let s { RobustBadge(value: Int(s.robustness)) }
+                            }
+                            if compact { numbers }
                         }
                     }
                 }
@@ -196,13 +216,13 @@ struct BoardView: View {
         return VStack(spacing: 4) {
             ForEach(topDown, id: \.self) { n in
                 if n == 0 {
-                    Text("TOWER").font(.system(size: 9, weight: .heavy)).foregroundStyle(.secondary)
+                    Text("TOWER").font(.system(size: 9, weight: .heavy)).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.5)
                         .frame(height: 16)
                         .accessibilityHidden(true)
                 } else {
                     let team = teams[(red ? 0 : 3) + n - 1]
                     VStack(spacing: 2) {
-                        Text(red ? "RED \(n)" : "BLUE \(n)").font(.system(size: 10, weight: .heavy))
+                        Text(compact ? "\(red ? "R" : "B")\(n)" : red ? "RED \(n)" : "BLUE \(n)").font(.system(size: compact ? 9 : 10, weight: .heavy))
                         Text(team == 0 ? "–" : String(team)).font(.headline.weight(.heavy)).minimumScaleFactor(0.6).lineLimit(1)
                     }
                     .foregroundStyle(.white)

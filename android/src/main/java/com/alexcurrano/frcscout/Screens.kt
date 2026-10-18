@@ -41,6 +41,13 @@ import kotlinx.serialization.json.jsonPrimitive
 
 private val gray = Color(0xFF8E8E93)
 
+/** On-screen way back, for scouts who don't know the back gesture. */
+@Composable
+private fun BackLink(label: String, onBack: () -> Unit) {
+    Text("‹ $label", color = C.accent, fontWeight = FontWeight.Bold, fontSize = 17.sp,
+        modifier = Modifier.clickable(onClick = onBack).padding(vertical = 6.dp))
+}
+
 @Composable
 private fun ListRow(onClick: () -> Unit, content: @Composable () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(16.dp)).background(C.card).clickable(onClick = onClick)
@@ -61,7 +68,7 @@ fun PitScreen(app: AppState, toast: (String) -> Unit) {
     var todoOnly by remember { mutableStateOf(false) }
     open?.let { draft ->
         BackHandler { open = null }
-        PitForm(app, draft, { open = it }) { app.savePit(it); toast("Saved pit · ${it.team}"); open = null }
+        PitForm(app, draft, { open = it }, { open = null }) { app.savePit(it); toast("Saved pit · ${it.team}"); open = null }
         return
     }
     val info = app.info
@@ -93,14 +100,15 @@ fun PitScreen(app: AppState, toast: (String) -> Unit) {
 }
 
 @Composable
-private fun PitForm(app: AppState, p: PitRecord, edit: (PitRecord) -> Unit, save: (PitRecord) -> Unit) {
+private fun PitForm(app: AppState, p: PitRecord, edit: (PitRecord) -> Unit, back: () -> Unit, save: (PitRecord) -> Unit) {
     val rubric = listOf("–", "1 · Expect it to fail; likely DNP", "2 · Looks unreliable, maybe fixable", "3 · Normal robot, fine for elims",
         "4 · Sturdy and well built", "5 · Looks indestructible")
     Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)) {
+        BackLink("Pit list (without saving)", back)
         H1("${p.team}${app.info?.names?.get("${p.team}")?.let { " · $it" } ?: ""}")
         Section("Robustness (1678 rubric)", "🛠", gray) {
             Choice((0..5).map { it to if (it == 0) "–" else "$it" }, p.robustness, C.robust(p.robustness)) { edit(p.copy(robustness = it)) }
-            Muted(rubric[p.robustness])
+            if (p.robustness > 0) Muted(rubric[p.robustness])
         }
         Section("Drivetrain", "🚗", gray) {
             Choice(listOf("Swerve", "Tank", "Mecanum", "Other").map { it to it }, p.drivetrain) { edit(p.copy(drivetrain = it)) }
@@ -167,7 +175,7 @@ fun TeamsScreen(app: AppState) {
     var unscouted by remember { mutableStateOf(false) }
     open?.let { team ->
         BackHandler { open = null }
-        TeamDetail(app, team)
+        TeamDetail(app, team) { open = null }
         return
     }
     val key = { t: TeamStats -> when (sort) { "epa" -> t.epa; "tower" -> t.tower ?: -1.0; "rank" -> -(if (t.rank == 0) 999 else t.rank).toDouble(); "team" -> -t.team.toDouble(); else -> t.points ?: -1.0 } }
@@ -201,7 +209,7 @@ fun TeamsScreen(app: AppState) {
 }
 
 @Composable
-private fun TeamDetail(app: AppState, team: Int) {
+private fun TeamDetail(app: AppState, team: Int, back: () -> Unit) {
     val s = stats(app.db, app.event).firstOrNull { it.team == team }
     val all = app.db.matches.filter { it.team == team }.sortedByDescending { order(it.type, it.match) }
     val here = all.filter { it.event == app.event }
@@ -210,6 +218,7 @@ private fun TeamDetail(app: AppState, team: Int) {
     var pre by remember(team) { mutableStateOf(saved ?: PreScout(team = team)) }
     val said = { m: MatchRecord -> listOf(m.weaknesses.takeIf { it.isNotEmpty() }?.let { "weakness: $it" }, m.breaks.takeIf { it.isNotEmpty() }?.let { "broke: $it" }, m.notes.takeIf { it.isNotEmpty() }).filterNotNull() }
     Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)) {
+        BackLink("Teams", back)
         H1("$team${s?.name?.takeIf { it.isNotEmpty() }?.let { " · $it" } ?: ""}")
         Card {
             listOf(listOf("Avg points" to f1(s?.points), "Season EPA" to f1(s?.epa?.takeIf { it > 0 }), "OPR" to f1(s?.opr?.takeIf { it != 0.0 })),
@@ -219,7 +228,7 @@ private fun TeamDetail(app: AppState, team: Int) {
         }
         Section("Pre-scout", "🔭", C.tiers[pre.tier]) {
             Choice(TIERS.indices.map { it to if (it == 0) "–" else "T$it" }, pre.tier, C.tiers[pre.tier]) { pre = pre.copy(tier = it) }
-            Muted(TIERS[pre.tier])
+            if (pre.tier > 0) Muted(TIERS[pre.tier])
             OutlinedTextField(pre.notes, { pre = pre.copy(notes = it) }, Modifier.fillMaxWidth(), placeholder = { Text("What did you see in videos, TBA, or past events?") }, minLines = 2)
             if (pre.tier != (saved?.tier ?: 0) || pre.notes != (saved?.notes ?: "")) SmallButton("Save pre-scout") { app.savePre(pre) }
         }
@@ -277,7 +286,7 @@ fun SetupScreen(app: AppState, toast: (String) -> Unit, onEventChosen: () -> Uni
             Muted(if (app.event.isEmpty()) "No event picked yet." else "Event: ${app.eventName.ifEmpty { app.event }} (${app.event})")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Box(Modifier.weight(1f)) {
-                    SmallButton("Find our event") {
+                    SmallButton("Find our event", modifier = Modifier.fillMaxWidth()) {
                         if (app.code.isEmpty() || app.ourTeam == 0) toast("Enter the team code and your team number first.") else scope.launch {
                             runCatching { app.events() }.onSuccess { (mine, _) ->
                                 val today = LocalDate.now().toString()
@@ -289,7 +298,7 @@ fun SetupScreen(app: AppState, toast: (String) -> Unit, onEventChosen: () -> Uni
                     }
                 }
                 Box(Modifier.weight(1f)) {
-                    SmallButton("Pick an event") {
+                    SmallButton("Pick an event", modifier = Modifier.fillMaxWidth()) {
                         if (app.code.isEmpty()) toast("Enter the team code first.") else scope.launch {
                             runCatching { app.events().second }.onSuccess { events = it }.onFailure { toast(it.message ?: "Couldn't reach the server") }
                         }
@@ -325,8 +334,8 @@ fun SetupScreen(app: AppState, toast: (String) -> Unit, onEventChosen: () -> Uni
             Muted("${app.db.matches.count { it.event == app.event }} match records · ${app.db.pits.size} pit records · " +
                 "${app.db.dirtyMatches.size + app.db.dirtyPits.size + app.db.dirtyPre.size} waiting to upload")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Box(Modifier.weight(1f)) { SmallButton("Sync now") { scope.launch { toast(if (app.sync()) "Synced" else "Sync failed: ${app.syncStatus}") } } }
-                Box(Modifier.weight(1f)) { SmallButton("Refresh event data") { scope.launch { toast(app.refreshEvent()) } } }
+                Box(Modifier.weight(1f)) { SmallButton("Sync now", modifier = Modifier.fillMaxWidth()) { scope.launch { toast(if (app.sync()) "Synced" else "Sync failed: ${app.syncStatus}") } } }
+                Box(Modifier.weight(1f)) { SmallButton("Refresh event data", modifier = Modifier.fillMaxWidth()) { scope.launch { toast(app.refreshEvent()) } } }
             }
         }
         Spacer(Modifier.height(80.dp))

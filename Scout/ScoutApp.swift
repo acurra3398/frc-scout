@@ -6,16 +6,29 @@ struct ScoutApp: App {
     // Remembered between launches; `-tab board` as a launch argument also works (UserDefaults reads it).
     @AppStorage("tab") private var tab = "match"
 
+    @ViewBuilder private func screen(_ id: String) -> some View {
+        switch id {
+        case "match": NavigationStack { MatchForm() }.tabItem { Label("Match", systemImage: "binoculars") }.tag(id)
+        case "pit": NavigationStack { PitList() }.tabItem { Label("Pit", systemImage: "wrench.and.screwdriver") }.tag(id)
+        case "teams": TeamsView().tabItem { Label("Teams", systemImage: "tablecells") }.tag(id)
+        case "compare": CompareView().tabItem { Label("H2H", systemImage: "arrow.up.arrow.down") }.tag(id)
+        case "picklist": PicklistView().tabItem { Label("Picks", systemImage: "list.number") }.tag(id)
+        case "board": BoardView().tabItem { Label("Board", systemImage: "pencil.and.outline") }.tag(id)
+        default: DataView().tabItem { Label("Data", systemImage: "gearshape") }.tag(id)
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
+            // An iPhone shows four tabs and puts the rest under More: keep the scout's tabs (and setup) up front.
             TabView(selection: $tab) {
-                NavigationStack { MatchForm() }.tabItem { Label("Match", systemImage: "binoculars") }.tag("match")
-                NavigationStack { PitList() }.tabItem { Label("Pit", systemImage: "wrench.and.screwdriver") }.tag("pit")
-                TeamsView().tabItem { Label("Teams", systemImage: "tablecells") }.tag("teams")
-                CompareView().tabItem { Label("H2H", systemImage: "arrow.up.arrow.down") }.tag("compare")
-                PicklistView().tabItem { Label("Picks", systemImage: "list.number") }.tag("picklist")
-                BoardView().tabItem { Label("Board", systemImage: "pencil.and.outline") }.tag("board")
-                DataView().tabItem { Label("Data", systemImage: "qrcode") }.tag("data")
+                ForEach(UIDevice.current.userInterfaceIdiom == .phone
+                        ? ["match", "pit", "teams", "data", "compare", "picklist", "board"]
+                        : ["match", "pit", "teams", "compare", "picklist", "board", "data"], id: \.self) { screen($0) }
+            }
+            .onAppear {
+                // First launch: setup comes first, since nothing works without a name and an event.
+                if (UserDefaults.standard.string(forKey: "event") ?? "").isEmpty { tab = "data" }
             }
             .fontDesign(.rounded)
             .environment(store)

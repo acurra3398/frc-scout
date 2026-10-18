@@ -262,7 +262,7 @@ struct PitForm: View {
                     Button("Mark as not scouted", systemImage: "arrow.uturn.backward", role: .destructive) { confirmUnmark = true }
                         .frame(maxWidth: .infinity)
                 } footer: {
-                    Text("Deletes this team's pit answers on this iPad so it shows as To do again.")
+                    Text("Deletes this team's pit answers on this device so it shows as To do again.")
                 }
             }
         }
@@ -272,7 +272,7 @@ struct PitForm: View {
                 dismiss()
             }
         } message: {
-            Text("Its pit answers are deleted from this iPad.")
+            Text("Its pit answers are deleted from this device.")
         }
         .navigationTitle(p.team == 0 ? Text("New pit record") : Text(verbatim: "\(p.team)\(name.map { " · \($0)" } ?? "")"))
         .navigationBarTitleDisplayMode(.inline)

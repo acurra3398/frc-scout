@@ -396,7 +396,7 @@ final class Store {
 
     func pit(_ team: Int) -> PitRecord? { db.pits.first { $0.team == team } }
 
-    /// Takes a team off this event's lists and deletes its match and pit data on this iPad.
+    /// Takes a team off this event's lists and deletes its match and pit data on this device.
     func remove(team: Int, event: String) {
         var d = db   // one save instead of one per change
         d.matches.removeAll { $0.team == team && $0.event == event }
@@ -442,7 +442,7 @@ final class Store {
             let changed = try await sync(server: server, code: code, event: event)
             syncStatus = "Synced at \(Date().formatted(date: .omitted, time: .shortened))\(changed > 0 ? " · \(changed) new or updated" : "")"
         } catch {
-            syncStatus = "Sync failed: \(error.localizedDescription) Everything is still saved on this iPad."
+            syncStatus = "Sync failed: \(error.localizedDescription) Everything is still saved on this device."
         }
     }
 

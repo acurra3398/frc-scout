@@ -301,7 +301,7 @@ struct ShotField: View {
 }
 
 extension View {
-    /// Asks before taking a team off the event: it leaves the lists and its data on this iPad is deleted.
+    /// Asks before taking a team off the event: it leaves the lists and its data on this device is deleted.
     func confirmRemove(_ team: Binding<Int?>, store: Store, event: String, then done: @escaping () -> Void = {}) -> some View {
         confirmationDialog("Remove team \(team.wrappedValue.map(String.init) ?? "") from this event?",
                            isPresented: Binding(get: { team.wrappedValue != nil }, set: { if !$0 { team.wrappedValue = nil } }),
@@ -311,7 +311,7 @@ extension View {
                 done()
             }
         } message: { _ in
-            Text("It leaves this event's lists, and its match and pit data on this iPad is deleted. You can bring it back to the lists from Data.")
+            Text("It leaves this event's lists, and its match and pit data on this device is deleted. You can bring it back to the lists from Data.")
         }
     }
 }

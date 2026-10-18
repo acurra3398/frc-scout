@@ -37,6 +37,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -74,9 +75,9 @@ fun Section(title: String, icon: String, color: Color, onClear: (() -> Unit)? = 
 }
 
 @Composable
-fun SmallButton(text: String, enabled: Boolean = true, onClick: () -> Unit) {
+fun SmallButton(text: String, enabled: Boolean = true, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Text(text, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (enabled) C.muted else C.muted.copy(alpha = .4f),
-        modifier = Modifier.clip(RoundedCornerShape(10.dp)).background(C.well).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
+        textAlign = TextAlign.Center, modifier = modifier.clip(RoundedCornerShape(10.dp)).background(C.well).clickable(enabled = enabled, role = Role.Button, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 8.dp))
 }
 
@@ -86,10 +87,11 @@ fun <T> Choice(options: List<Pair<T, String>>, selected: T, color: Color = C.acc
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         options.forEach { (value, label) ->
             val on = value == selected
-            Box(Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).background(if (on) color else base)
+            // "–" (not answered) needs less room than the answers; long rows get slightly smaller text.
+            Box((if (label == "–") Modifier.width(48.dp) else Modifier.weight(1f)).heightIn(min = 44.dp).clip(RoundedCornerShape(12.dp)).background(if (on) color else base)
                 .clickable(role = Role.Tab) { onSelect(value) }.semantics { this.selected = on }, contentAlignment = Alignment.Center) {
-                Text(label, color = if (on) Color.White else Color(0xFF111111), fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 4.dp))
+                Text(label, color = if (on) Color.White else Color(0xFF111111), fontWeight = FontWeight.SemiBold, fontSize = if (options.size >= 5) 14.sp else 15.sp,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(horizontal = 2.dp))
             }
         }
     }

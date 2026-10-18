@@ -15,6 +15,8 @@ struct MatchForm: View {
     @AppStorage("eventName") private var eventName = ""
     @AppStorage("matchType") private var lastType = MatchType.qual
     @AppStorage("wholeAlliance") private var wholeAlliance = false
+    @AppStorage("syncCode") private var syncCode = ""
+    @State private var savedNote = ""
     @State private var crew: [MatchRecord]      // one robot, or the alliance's three
     @State private var current = 0              // which robot the form is editing
     @State private var shared: [MatchRecord] = []
@@ -41,68 +43,30 @@ struct MatchForm: View {
     private var multi: Bool { crew.count > 1 }
 
     var body: some View {
+        ScrollViewReader { scroller in
         ScrollView {
             VStack(spacing: 16) {
                 header
+                    .id("top")
                 if multi { switcher }
 
                 if r.type == .playoff {
                     playoffForm
                 } else {
+                    // iPad: two columns. iPhone: one column in the order the match happens.
                     columns {
                         VStack(spacing: 16) {
-                            VStack(alignment: .leading, spacing: 14) {
-                                SectionHeader(title: "Auto", systemImage: "timer", color: .autoPhase, detail: "20 s") {
-                                    edit { $0.startPos = nil; $0.autoFuel = nil; $0.autoClimb = false; $0.autoNeutral = false }
-                                }
-                                Choice(options: [(nil, "–")] + StartPos.allCases.map { (Optional($0), $0.rawValue) }, selection: rb.startPos, color: .autoPhase)
-                                Counter(title: "Fuel scored", value: rb.autoFuel, steps: [1, 5], color: .autoPhase)
-                                HStack(spacing: 8) {
-                                    Chip(title: "Climbed L1 · 15", systemImage: "arrow.up.to.line", isOn: rb.autoClimb, color: .autoPhase)
-                                    Chip(title: "Neutral zone", systemImage: "arrow.right.circle", isOn: rb.autoNeutral, color: .autoPhase)
-                                }
-                            }
-                            .card()
-
-                            VStack(alignment: .leading, spacing: 14) {
-                                SectionHeader(title: "End game", systemImage: "flag.checkered", color: .endPhase) {
-                                    edit { $0.climb = nil }
-                                }
-                                Choice(options: towerOptions(points: true), selection: rb.climb, color: .endPhase)
-                            }
-                            .card()
-
-                            VStack(alignment: .leading, spacing: 14) {
-                                SectionHeader(title: "Problems", systemImage: "exclamationmark.triangle.fill", color: .redAlliance) {
-                                    edit { $0.died = false; $0.tipped = false; $0.eStopped = false; $0.aStopped = false; $0.noShoot = false }
-                                }
-                                problemChips
-                            }
-                            .card()
+                            autoCard
+                            if compact { teleCard }
+                            endCard
+                            problemsCard
+                            if compact { ratingsCard }
                         }
-
-                        VStack(spacing: 16) {
-                            VStack(alignment: .leading, spacing: 14) {
-                                SectionHeader(title: "Teleop", systemImage: "gamecontroller.fill", color: .telePhase, detail: "active hub") {
-                                    edit { $0.teleFuel = nil; $0.passes = nil; $0.role = nil; $0.shootsOnMove = false; $0.shots = [] }
-                                }
-                                Counter(title: "Fuel scored", value: rb.teleFuel, color: .telePhase)
-                                Counter(title: "Passes (volleys)", value: rb.passes, steps: [1], color: .telePhase)
-                                Choice(options: roleOptions, selection: rb.role, color: .telePhase)
-                                Chip(title: "Shoots while moving", systemImage: "figure.run", isOn: rb.shootsOnMove, color: .telePhase)
-                                shotMap
+                        if !compact {
+                            VStack(spacing: 16) {
+                                teleCard
+                                ratingsCard
                             }
-                            .card()
-
-                            VStack(alignment: .leading, spacing: 14) {
-                                SectionHeader(title: "Ratings", systemImage: "star.fill", color: .accentColor) {
-                                    edit { $0.accuracy = 0; $0.driver = 0; $0.defense = 0 }
-                                }
-                                Rating(title: "Accuracy", value: rb.accuracy, caption: "5 rarely misses")
-                                Rating(title: "Driver", value: rb.driver, caption: "agility, awareness")
-                                Rating(title: "Defense", value: rb.defense, caption: "blank if they didn't")
-                            }
-                            .card()
                         }
                     }
 
@@ -114,7 +78,7 @@ struct MatchForm: View {
                     .card()
                 }
 
-                Button(action: save) {
+                Button { save(); withAnimation { scroller.scrollTo("top", anchor: .top) } } label: {
                     Label(editing ? "Save changes" : multi ? "Save \(toSave.count) robot\(toSave.count == 1 ? "" : "s")" : "Save match",
                           systemImage: "checkmark.circle.fill")
                         .font(.title3.weight(.heavy))
@@ -135,11 +99,27 @@ struct MatchForm: View {
         }
         .background(Color.page)
         .scrollDismissesKeyboard(.interactively)
+        .overlay(alignment: .top) {
+            if !savedNote.isEmpty {
+                Label(savedNote, systemImage: "checkmark.circle.fill")
+                    .font(.headline).foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(Color.green, in: Capsule())
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+            }
+        }
+        .task(id: savedNote) {
+            guard !savedNote.isEmpty else { return }
+            try? await Task.sleep(for: .seconds(2.5))
+            withAnimation { savedNote = "" }
+        }
+        }
         .navigationTitle(editing ? Text(verbatim: "Edit match \(r.match) · \(r.team)") : Text("Match scouting"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             HelpButton(title: "Match scouting", items: Help.match)
-            if !editing {
+            if !editing && !compact {
                 Text("\(scout.isEmpty ? "No name set" : scout) · \(event.isEmpty ? "no event" : event)")
                     .font(.footnote).foregroundStyle(.secondary)
             }
@@ -176,6 +156,70 @@ struct MatchForm: View {
             QRSheet(title: "Match \(shared.first?.match ?? 0)",
                     codes: shared.map { ("Match \($0.match) · \($0.team)", Snapshot(matches: [$0])) })
         }
+    }
+
+    private var autoCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(title: "Auto", systemImage: "timer", color: .autoPhase, detail: "20 s") {
+                edit { $0.startPos = nil; $0.autoFuel = nil; $0.autoClimb = false; $0.autoNeutral = false }
+            }
+            Text("Where they started").font(.headline)
+        Choice(options: [(nil, "–")] + StartPos.allCases.map { (Optional($0), $0.rawValue) }, selection: rb.startPos, color: .autoPhase)
+            Counter(title: "Fuel scored", value: rb.autoFuel, steps: [1, 5], color: .autoPhase)
+            HStack(spacing: 8) {
+                Chip(title: "Climbed L1 · 15", systemImage: "arrow.up.to.line", isOn: rb.autoClimb, color: .autoPhase)
+                Chip(title: "Neutral zone", systemImage: "arrow.right.circle", isOn: rb.autoNeutral, color: .autoPhase)
+            }
+        }
+        .card()
+    }
+
+    private var teleCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(title: "Teleop", systemImage: "gamecontroller.fill", color: .telePhase, detail: "active hub") {
+                edit { $0.teleFuel = nil; $0.passes = nil; $0.role = nil; $0.shootsOnMove = false; $0.shots = [] }
+            }
+            Counter(title: "Fuel scored", value: rb.teleFuel, color: .telePhase)
+            Counter(title: "Passes (volleys)", value: rb.passes, steps: [1], color: .telePhase)
+            Text("Main role this match").font(.headline)
+        Choice(options: roleOptions, selection: rb.role, color: .telePhase)
+            Chip(title: "Shoots while moving", systemImage: "figure.run", isOn: rb.shootsOnMove, color: .telePhase)
+            shotMap
+        }
+        .card()
+    }
+
+    private var endCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(title: "End game", systemImage: "flag.checkered", color: .endPhase) {
+                edit { $0.climb = nil }
+            }
+            Text("Tower at the end").font(.headline)
+        Choice(options: towerOptions(points: !compact), selection: rb.climb, color: .endPhase)
+        }
+        .card()
+    }
+
+    private var problemsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(title: "Problems", systemImage: "exclamationmark.triangle.fill", color: .redAlliance) {
+                edit { $0.died = false; $0.tipped = false; $0.eStopped = false; $0.aStopped = false; $0.noShoot = false }
+            }
+            problemChips
+        }
+        .card()
+    }
+
+    private var ratingsCard: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionHeader(title: "Ratings", systemImage: "star.fill", color: .accentColor) {
+                edit { $0.accuracy = 0; $0.driver = 0; $0.defense = 0 }
+            }
+            Rating(title: "Accuracy", value: rb.accuracy, caption: "5 rarely misses")
+            Rating(title: "Driver", value: rb.driver, caption: "agility, awareness")
+            Rating(title: "Defense", value: rb.defense, caption: "blank if they didn't")
+        }
+        .card()
     }
 
     /// Whole match saves only robots someone actually scouted, so empty ones don't count as scouted.
@@ -227,9 +271,9 @@ struct MatchForm: View {
     private func robotButton(_ i: Int) -> some View {
         let red = i < 3
         return Button { withAnimation(.snappy) { current = i } } label: {
-            HStack(spacing: 10) {
+            (compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4)) : AnyLayout(HStackLayout(spacing: 10))) {
                 Text(Self.seatName(i)).font(.caption.weight(.heavy)).foregroundStyle(.white)
-                    .frame(width: 32, height: 32)
+                    .frame(width: compact ? 26 : 32, height: compact ? 26 : 32)
                     .background(Self.robotColors[i], in: Circle())
                 VStack(alignment: .leading, spacing: 0) {
                     Text(crew[i].team == 0 ? "–" : String(crew[i].team)).font(.title3.weight(.heavy))
@@ -239,7 +283,7 @@ struct MatchForm: View {
                 Spacer(minLength: 0)
             }
             .padding(10)
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(current == i ? Color.alliance(red).opacity(0.18) : Color.surface,
                         in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -324,7 +368,7 @@ struct MatchForm: View {
     private var header: some View {
         let info = store.db.info
         let pit = store.pit(r.team)
-        let stations = (0..<6).map { ($0, $0 < 3 ? "Red \($0 + 1)" : "Blue \($0 - 2)") }
+        let stations = (0..<6).map { ($0, compact ? Self.seatName($0) : $0 < 3 ? "Red \($0 + 1)" : "Blue \($0 - 2)") }
         let nameBlock = VStack(alignment: .leading, spacing: 6) {
                     Text(teamLabel(info))
                         .font(.headline).lineLimit(1)
@@ -347,7 +391,7 @@ struct MatchForm: View {
                 if scheduled.isEmpty || editing { bigField("MATCH", rb.match) } else { matchPicker }
                 bigField(editing ? "TEAM" : compact ? seatLabel : "TEAM · \(seatLabel)", rb.team)
                 if !compact { nameBlock.padding(.top, 18) }
-                Spacer(minLength: 0)
+                if !compact { Spacer(minLength: 0) }
                 VStack(alignment: .trailing, spacing: 0) {
                     Text("\(r.points)")
                         .font(.system(size: 46, weight: .heavy, design: .rounded))
@@ -369,12 +413,12 @@ struct MatchForm: View {
                     Choice(options: stations, selection: $station, color: .alliance(station < 3), base: .surface)
                 }
             }
-            HStack {
+            (compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 10)) : AnyLayout(HStackLayout())) {
                 if !editing {
                     Choice(options: [(false, "One robot"), (true, "Whole match")], selection: $wholeAlliance, color: .navy, base: .surface)
-                        .frame(maxWidth: 320)
+                        .frame(maxWidth: compact ? .infinity : 320)
                 }
-                Spacer()
+                if !compact { Spacer() }
                 if let queuing = info?.nowQueuing, !queuing.isEmpty, !editing {
                     Label("Now queuing: \(queuing)", systemImage: "clock.fill").font(.subheadline.weight(.semibold)).foregroundStyle(Color.navy)
                 }
@@ -398,7 +442,7 @@ struct MatchForm: View {
             NumberField(title: "–", value: value)
                 .font(.system(size: compact ? 28 : 34, weight: .heavy, design: .rounded))
                 .padding(.horizontal, 12)
-                .frame(width: compact ? 104 : 140, height: 56)
+                .frame(minWidth: compact ? 88 : 140, maxWidth: compact ? .infinity : 140, minHeight: 56, maxHeight: 56)
                 .background(Color.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
     }
@@ -510,7 +554,10 @@ struct MatchForm: View {
             store.save(m)
             if let stored = store.db.matches.first(where: { $0.id == m.id }) { saved.append(stored) }
         }
-        shared = saved
+        // With team sync the save goes to everyone on its own; the QR codes are for scouting without it.
+        if syncCode.isEmpty { shared = saved } else {
+            withAnimation { savedNote = "Saved \(saved.map { String($0.team) }.joined(separator: ", "))" }
+        }
         let next = r.match + 1, type = r.type
         crew = crew.indices.map { MatchRecord(type: type, match: next, alliance: (multi ? $0 : station) < 3 ? .red : .blue) }
         seats = [:]

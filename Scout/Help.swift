@@ -67,7 +67,7 @@ enum Help {
         ("Robust", "The pit robustness rating, 1-5. Red is risky."),
         ("Not scouted yet", "Shows only teams with no scouted matches, with each one's next match and seat so you can send a scout."),
         ("Pre-scouting", "Open a team and fill in its Pre-scout card before the event: a tier (T1 elite to T4 weak) and notes from videos, TBA, or past events. The tier shows next to the team number here and can count in the weighted picklist."),
-        ("Past events", "Scouting from every competition is kept. Team pages show notes from other events, and Data › Events on this iPad switches back to an old event."),
+        ("Past events", "Scouting from every competition is kept. Team pages show notes from other events, and Data › Events on this device switches back to an old event."),
         ("Tips", "Tap a column header to sort. Search by number or name. The share button posts an event overview to Slack."),
     ]
 
@@ -98,8 +98,8 @@ enum Help {
     ]
 
     static let data: [(String, String)] = [
-        ("Set up each iPad", "Enter your name and team number, then Find the event we're at (needs a TBA key), or Choose any event. Everything the scouts save is tagged with the event."),
-        ("Team sync", "Enter the team code once on each device. Then every iPad and phone shares this event's scouting by itself every 20 seconds while the app is open, so each one can scout a different robot in the same match. Phones use the web app at frc-scout-one.vercel.app. Sync only adds and updates records; deleting something on one device doesn't delete it anywhere else."),
+        ("Set up each device", "Enter your name and team number, then Find the event we're at (needs a TBA key), or Choose any event. Everything the scouts save is tagged with the event."),
+        ("Team sync", "Enter the team code once on each device. Then every iPad and phone shares this event's scouting by itself every 20 seconds while the app is open, so each one can scout a different robot in the same match. iPhones can run this app too; Android phones and computers use frc-scout-one.vercel.app (Setup there has the Android app). Sync only adds and updates records; deleting something on one device doesn't delete it anywhere else."),
         ("Keys", "The Blue Alliance read key comes from thebluealliance.com/account. The Nexus key (optional) comes from frc.nexus/api; pick the Pull API, not webhooks. Statbotics needs no key."),
         ("Automatic updates", "While the app is open it re-downloads TBA and Statbotics data every 5 minutes, and Nexus every minute."),
         ("Getting data to the lead scout", "Scouts open Show my QR codes and swipe through; the lead taps Scan QR codes and points the camera. Or use Export everything and AirDrop the file, then Import on the lead's iPad."),

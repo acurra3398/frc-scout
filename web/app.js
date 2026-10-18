@@ -199,7 +199,7 @@ const section = (title, icon, color, onClear, ...kids) => h("section", { class: 
     onClear && h("button", { class: "clear", onclick: () => { onClear(); render(); } }, "Clear")), ...kids);
 function choice(options, value, set, color = "var(--accent)") {
   return h("div", { class: "choice" }, options.map(([v, text]) => h("button", {
-    class: v === value ? "on" : "", style: v === value ? { background: color } : null, "aria-pressed": String(v === value),
+    class: `${v === value ? "on" : ""}${text === "–" ? " dash" : ""}`, style: v === value ? { background: color } : null, "aria-pressed": String(v === value),
     onclick: () => { set(v); render(); } }, text)));
 }
 const chip = (text, on, toggle, color) => h("button", { class: `chip${on ? " on" : ""}`, style: on ? { background: color } : null,
@@ -308,6 +308,7 @@ function matchView() {
     chip("A-stopped", m.aStopped, () => edit((x) => (x.aStopped = !x.aStopped)), "var(--auto)"),
     h("div", { style: { gridColumn: "span 2" } }, chip("Didn't shoot / drive only", m.noShoot, () => edit((x) => (x.noShoot = !x.noShoot)), "var(--red)")));
   const towerChoice = (color) => choice([[undefined, "–"], [0, "None"], [1, "L1"], [2, "L2"], [3, "L3"]], m.climb, (v) => edit((x) => (x.climb = v)), color);
+  const ask = (title) => h("b", { class: "ask" }, title);
   const roleChoice = (color) => choice([[undefined, "–"], ...ROLES.map((x) => [x, x])], m.role, (v) => edit((x) => (x.role = v)), color);
   const text = (title, key, placeholder) => h("label", { class: "field" }, h("span", {}, title),
     h("textarea", { placeholder, oninput: (e) => edit((x) => (x[key] = e.target.value)) }, m[key]));
@@ -324,6 +325,7 @@ function matchView() {
       text("Defense and strategy notes", "notes", "Who they defended, where they shot from…")),
   ] : [
     section("Auto", "⏱", "var(--auto)", () => edit((x) => Object.assign(x, { startPos: undefined, autoFuel: undefined, autoClimb: false, autoNeutral: false })),
+      ask("Where they started"),
       choice([[undefined, "–"], ...STARTS.map((x) => [x, x])], m.startPos, (v) => edit((x) => (x.startPos = v)), "var(--auto)"),
       counter("Fuel scored", m.autoFuel, (v) => edit((x) => (x.autoFuel = v)), [1, 5], "var(--auto)"),
       h("div", { class: "grid2", style: { marginTop: "10px" } },
@@ -333,10 +335,11 @@ function matchView() {
       h("div", { class: "small" }, "Count fuel into the ACTIVE hub only."),
       counter("Fuel scored", m.teleFuel, (v) => edit((x) => (x.teleFuel = v)), [1, 5, 10], "var(--tele)"),
       counter("Passes (volleys)", m.passes, (v) => edit((x) => (x.passes = v)), [1], "var(--tele)"),
+      ask("Main role this match"),
       roleChoice("var(--tele)"),
       chip("Shoots while moving", m.shootsOnMove, () => edit((x) => (x.shootsOnMove = !x.shootsOnMove)), "var(--tele)"),
       shotMap(m, multi)),
-    section("End game", "🏁", "var(--end)", () => edit((x) => (x.climb = undefined)), towerChoice("var(--end)")),
+    section("End game", "🏁", "var(--end)", () => edit((x) => (x.climb = undefined)), ask("Tower at the end"), towerChoice("var(--end)")),
     section("Problems", "⚠️", "var(--red)", () => edit((x) => Object.assign(x, { died: false, tipped: false, eStopped: false, aStopped: false, noShoot: false })), problems),
     section("Ratings", "⭐", "var(--accent)", () => edit((x) => Object.assign(x, { accuracy: 0, driver: 0, defense: 0 })),
       rating("Accuracy", m.accuracy, (v) => edit((x) => (x.accuracy = v))),

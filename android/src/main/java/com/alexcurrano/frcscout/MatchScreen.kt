@@ -30,6 +30,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.launch
 
 /** The robot(s) being scouted right now: one, or all six in the match, each its own record. */
 class MatchSession(private val app: AppState) {
@@ -113,7 +115,9 @@ fun MatchScreen(app: AppState, s: MatchSession, toast: (String) -> Unit) {
     val m = s.r
     val multi = s.whole
     val seat = seatName(if (multi) s.current else s.station)
-    Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)) {
+    val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    Column(Modifier.verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 12.dp)) {
         H1("Match scouting")
         Header(app, s, m, seat)
         if (multi) RobotGrid(s)
@@ -124,6 +128,7 @@ fun MatchScreen(app: AppState, s: MatchSession, toast: (String) -> Unit) {
             .clickable(enabled = can) {
                 val saved = s.save()
                 toast("Saved ${saved.joinToString { it.team.toString() }}")
+                scope.launch { scroll.animateScrollTo(0) }   // the next match starts at the top
             }, contentAlignment = Alignment.Center) {
             Text(if (multi) "Save ${toSave.size} robot${if (toSave.size == 1) "" else "s"}" else "Save match", fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = C.navy)
         }
@@ -247,6 +252,7 @@ private val roleOptions = listOf<Pair<String?, String>>(null to "–") + ROLES.m
 @Composable
 private fun ScoutingForm(s: MatchSession, m: MatchRecord, multi: Boolean) {
     Section("Auto", "⏱", C.auto, { s.set { it.copy(startPos = null, autoFuel = null, autoClimb = false, autoNeutral = false) } }) {
+        Text("Where they started", fontWeight = FontWeight.Bold)
         Choice(listOf<Pair<String?, String>>(null to "–") + STARTS.map { it to it }, m.startPos, C.auto) { v -> s.set { it.copy(startPos = v) } }
         Counter("Fuel scored", m.autoFuel, listOf(1, 5), C.auto) { v -> s.set { it.copy(autoFuel = v) } }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -258,6 +264,7 @@ private fun ScoutingForm(s: MatchSession, m: MatchRecord, multi: Boolean) {
         Muted("Count fuel into the ACTIVE hub only.")
         Counter("Fuel scored", m.teleFuel, listOf(1, 5, 10), C.tele) { v -> s.set { it.copy(teleFuel = v) } }
         Counter("Passes (volleys)", m.passes, listOf(1), C.tele) { v -> s.set { it.copy(passes = v) } }
+        Text("Main role this match", fontWeight = FontWeight.Bold)
         Choice(roleOptions, m.role, C.tele) { v -> s.set { it.copy(role = v) } }
         Toggle("Shoots while moving", m.shootsOnMove, C.tele) { s.set { it.copy(shootsOnMove = !it.shootsOnMove) } }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -272,7 +279,8 @@ private fun ScoutingForm(s: MatchSession, m: MatchRecord, multi: Boolean) {
         }) { x, y -> s.set { it.copy(shots = it.shots + listOf(listOf((x * 1000).toInt() / 1000.0, (y * 1000).toInt() / 1000.0))) } }
     }
     Section("End game", "🏁", C.end, { s.set { it.copy(climb = null) } }) {
-        Choice(towerOptions.map { (v, l) -> v to (if (v != null && v > 0) "$l · ${TOWER[v]}" else l) }, m.climb, C.end) { v -> s.set { it.copy(climb = v) } }
+        Text("Tower at the end", fontWeight = FontWeight.Bold)
+        Choice(towerOptions, m.climb, C.end) { v -> s.set { it.copy(climb = v) } }
     }
     Section("Problems", "⚠️", C.red, { s.set { it.copy(died = false, tipped = false, eStopped = false, aStopped = false, noShoot = false) } }) { Problems(s, m) }
     Section("Ratings", "⭐", C.accent, { s.set { it.copy(accuracy = 0, driver = 0, defense = 0) } }) {

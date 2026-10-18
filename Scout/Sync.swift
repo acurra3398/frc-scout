@@ -55,7 +55,7 @@ struct DataView: View {
                     }
                     .disabled(finding || ourTeam == 0 || (tbaKey.isEmpty && syncCode.isEmpty))
                 } header: {
-                    Text("This iPad")
+                    Text("This device")
                 } footer: {
                     Text("Find looks up your team on The Blue Alliance and picks the event happening today, or your next one. Choosing an event downloads every team, the schedule, OPR, EPA, and pit numbers. New records are tagged with your name and the event.")
                 }
@@ -133,7 +133,7 @@ struct DataView: View {
                 } header: {
                     Text("Team sync")
                 } footer: {
-                    Text("With the team code, every iPad and phone shares this event's scouting automatically (every 20 seconds while the app is open), so each device can scout a different robot in the same match. Phones use the web app at [frc-scout-one.vercel.app](https://frc-scout-one.vercel.app). The team server also holds the TBA and Nexus keys, so devices without their own keys still get event data. Sync only adds and updates; it never deletes anything.")
+                    Text("With the team code, every iPad and phone shares this event's scouting automatically (every 20 seconds while the app is open), so each device can scout a different robot in the same match. iPhones can run this app too; Android phones and computers use [frc-scout-one.vercel.app](https://frc-scout-one.vercel.app), which also has the Android app. The team server also holds the TBA and Nexus keys, so devices without their own keys still get event data. Sync only adds and updates; it never deletes anything.")
                 }
 
                 Section("Collect from scouts") {
@@ -159,7 +159,7 @@ struct DataView: View {
                             .disabled(key == event)
                         }
                     } header: {
-                        Text("Events on this iPad")
+                        Text("Events on this device")
                     } footer: {
                         Text("Scouting from every competition stays here. Tap one to look at it again; nothing from other events is ever deleted. Team pages also show each team's notes from other events.")
                     }
@@ -182,7 +182,7 @@ struct DataView: View {
                     LabeledContent("Matches", value: "\(store.db.matches.count)")
                     LabeledContent("Pit records", value: "\(store.db.pits.count)")
                 } header: {
-                    Text("On this iPad")
+                    Text("On this device")
                 } footer: {
                     Text("Version \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "?"). Updates arrive through SideStore.")
                 }
@@ -459,7 +459,7 @@ struct ScanSheet: View {
                     .ignoresSafeArea()
                 } else {
                     ContentUnavailableView("Can't scan", systemImage: "camera",
-                        description: Text("This iPad's camera can't scan QR codes."))
+                        description: Text("This device's camera can't scan QR codes."))
                 }
                 Text("\(added) new records · \(seen.count) codes scanned")
                     .font(.headline)
@@ -527,7 +527,7 @@ final class ScannerHost: UIViewController {
         } catch DataScannerViewController.ScanningUnavailable.cameraRestricted {
             onError?("Camera access is off. Turn it on in Settings › FRC Scout.")
         } catch {
-            onError?("This iPad can't scan QR codes.")
+            onError?("This device can't scan QR codes.")
         }
     }
 

@@ -42,6 +42,8 @@ label.field span { display: block; font-size: 13px; color: var(--muted); margin-
 }
 .hero .choice button { background: #fff; }
 .choice button.on { color: #fff; }
+.choice button.dash { flex: 0 0 48px; }   /* "not answered" needs less room than the answers */
+@media (max-width: 480px) { .choice:has(> :nth-child(5)) button { font-size: 14px; padding: 0 2px; } }
 .chip {
   min-height: 46px; border-radius: 23px; background: var(--well); font-weight: 600; font-size: 15px; padding: 0 12px; width: 100%;
 }
@@ -51,6 +53,7 @@ label.field span { display: block; font-size: 13px; color: var(--muted); margin-
 
 .counter .top { display: flex; align-items: baseline; gap: 8px; margin: 10px 0 6px; }
 .counter .top b { flex: 1; font-size: 17px; }
+.ask { display: block; font-size: 17px; margin: 10px 0 6px; }
 .counter .num { font-size: 40px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .counter .blank { font-size: 14px; color: var(--muted); font-weight: 600; }
 .counter .btns { display: flex; gap: 8px; }
