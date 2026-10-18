@@ -32,14 +32,16 @@ case "${1:-}" in
     # Signs with the Apple ID in Xcode › Settings › Accounts and installs on every plugged-in (or same
     # Wi-Fi) iPhone and iPad. Works while SideStore can't sign in; free signing lasts 7 days.
     TEAM=$(defaults read com.apple.dt.Xcode IDEProvisioningTeamByIdentifier | grep -m1 -oE 'teamID = [A-Z0-9]+' | cut -d' ' -f3)
-    DEVICES=$(xcrun devicectl list devices | grep -E 'iPad|iPhone' | grep 'physical' | grep -vw 'unavailable' | grep -oE '[0-9A-F]{8}-[0-9A-F]{16}' || true)
+    # Physical UDIDs only (simulators have 8-4-4-4-12 ids); a just-paired phone isn't labeled "physical" yet.
+    DEVICES=$(xcrun devicectl list devices | grep -vw 'unavailable' | grep -oE '[0-9A-F]{8}-[0-9A-F]{16}' || true)
     [[ -n "$TEAM" ]] || { echo "Sign in to Xcode › Settings › Accounts first." >&2; exit 1; }
     [[ -n "$DEVICES" ]] || { echo "No iPhone or iPad reachable: plug it in (or join the same Wi-Fi) and unlock it." >&2; exit 1; }
     for DEVICE in $DEVICES; do
       xcodebuild -project Scout.xcodeproj -scheme Scout -configuration Debug -destination "id=$DEVICE" -derivedDataPath build/device \
         -allowProvisioningUpdates -allowProvisioningDeviceRegistration DEVELOPMENT_TEAM="$TEAM" CODE_SIGN_STYLE=Automatic -quiet build
       xcrun devicectl device install app --device "$DEVICE" build/device/Build/Products/Debug-iphoneos/Scout.app
-      xcrun devicectl device process launch --device "$DEVICE" com.alexcurrano.frcscout
+      xcrun devicectl device process launch --device "$DEVICE" com.alexcurrano.frcscout >/dev/null 2>&1 \
+        || echo "Installed on $DEVICE; unlock it and open FRC Scout."   # locked devices can't launch, keep going
     done
     ;;
   --sim)
